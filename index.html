@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VESIT Mobile Attendance</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #eef2f5; text-align: center; padding: 10px; }
+        .card { background: white; max-width: 100%; margin: auto; padding: 20px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        
+        input { width: 90%; padding: 12px; margin-bottom: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 16px; text-align: center;}
+        
+        button { width: 100%; padding: 14px; margin-top: 10px; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; color: white; transition: 0.3s; }
+        .btn-blue { background: #4285F4; }
+        .btn-green { background: #34A853; display: none; }
+        
+        #map { height: 180px; width: 100%; margin-top: 15px; display: none; border-radius: 8px; }
+        video { width: 100%; border-radius: 8px; margin-top: 15px; display: none; transform: scaleX(-1); background: black; }
+        
+        /* MOBILE DEBUG CONSOLE */
+        #console { 
+            text-align: left; background: #000; color: #0f0; 
+            padding: 10px; font-family: monospace; font-size: 12px; 
+            margin-top: 20px; border-radius: 5px; min-height: 100px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h2>📍 VESIT Mobile</h2>
+
+        <input type="text" id="studentName" placeholder="Enter Full Name" autocomplete="off">
+
+        <button type="button" id="btn-start" class="btn-blue" onclick="startSystem()">1. Start System</button>
+        <div id="map"></div>
+
+        <button type="button" id="btn-upload" class="btn-blue" style="display:none" onclick="document.getElementById('refImg').click()">2. Upload Selfie/ID</button>
+        <input type="file" id="refImg" accept="image/*" style="display:none" onchange="processReferenceImage(event)">
+
+        <button type="button" id="btn-cam" class="btn-green" onclick="startCamera()">3. Start Camera</button>
+        <video id="video" autoplay muted playsinline></video>
+        
+        <div id="console">System Ready. Waiting for user...</div>
+    </div>
+
+<script>
+    // --- ⚙️ CONFIGURATION ---
+    const FORM_ID = "1FAIpQLSf2uyNDQcGX8OWEds6tirbJjRPGe-9T0bD6TaLuOJy8s7Yqow"; 
+    const ENTRY_NAME_ID = "1911063036"; 
+    const ENTRY_STATUS_ID = "402365696"; 
+    const COLLEGE_LAT = 19.0457;
+    const COLLEGE_LNG = 72.8892;
+    // ------------------------
+
+    let labeledDescriptors;
+    let isScanning = false;
+
+    // LOGGER FOR MOBILE
+    function log(msg) {
+        const c = document.getElementById("console");
+        c.innerHTML = "> " + msg + "<br>" + c.innerHTML;
+        console.log(msg);
+    }
+
+    async function startSystem() {
+        const name = document.getElementById("studentName").value;
+        if(name.trim() === "") { alert("Enter Name!"); return; }
+
+        log("🚀 Starting System...");
+        
+        try {
+            log("⏳ Loading AI Models (Tiny)...");
+            await faceapi.nets.tinyFaceDetector.loadFromUri('https://justadudewhohacks.github.io/face-api.js/models');
+            await faceapi.nets.faceLandmark68Net.loadFromUri('https://justadudewhohacks.github.io/face-api.js/models');
+            await faceapi.nets.faceRecognitionNet.loadFromUri('https://justadudewhohacks.github.io/face-api.js/models');
+            log("✅ AI Models Loaded!");
+            checkGPS();
+        } catch (err) { log("❌ AI ERROR: " + err); }
+    }
+
+    function checkGPS() {
+        if (!navigator.geolocation) { log("❌ GPS Not Supported"); return; }
+        
+        log("🛰️ Requesting GPS...");
+        navigator.geolocation.getCurrentPosition((pos) => {
+            log(`✅ GPS Found: ${pos.coords.latitude.toFixed(4)}`);
+            document.getElementById("map").style.display = "block";
+            
+            const map = L.map('map').setView([pos.coords.latitude, pos.coords.longitude], 14);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+            L.marker([pos.coords.latitude, pos.coords.longitude]).addTo(map).bindPopup("You").openPopup();
+            L.circle([COLLEGE_LAT, COLLEGE_LNG], {radius: 5000, color: 'red'}).addTo(map);
+
+            document.getElementById("btn-start").style.display = "none";
+            document.getElementById("studentName").disabled = true; 
+            document.getElementById("btn-upload").style.display = "block";
+        }, (err) => log("❌ GPS ERROR: " + err.message + " (Check Location Settings)"));
+    }
+
+    async function processReferenceImage(event) {
+        log("📷 Processing Image...");
+        const img = await faceapi.bufferToImage(event.target.files[0]);
+        
+        // High Sensitivity for ID Photo
+        const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 512, scoreThreshold: 0.3 });
+        const detections = await faceapi.detectSingleFace(img, options).withFaceLandmarks().withFaceDescriptor();
+
+        if (!detections) { log("❌ No face found in photo. Try closer."); return; }
+
+        labeledDescriptors = new faceapi.LabeledFaceDescriptors('Student', [detections.descriptor]);
+        log("✅ Face Learned! Ready for Camera.");
+        document.getElementById("btn-upload").style.display = "none";
+        document.getElementById("btn-cam").style.display = "block";
+    }
+
+    function startCamera() {
+        log("🎥 Opening Camera...");
+        const video = document.getElementById('video');
+        video.style.display = "block";
+        document.getElementById("btn-cam").style.display = "none";
+        isScanning = true;
+
+        // Try Front Camera explicitly
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } })
+        .then(stream => {
+            video.srcObject = stream;
+            video.onloadedmetadata = () => {
+                video.play();
+                log("✅ Camera Active. Scanning...");
+                detectFaceLoop();
+            };
+        })
+        .catch(err => {
+            log("❌ CAMERA FAIL: " + err.name);
+            log("Tip: Ensure site is HTTPS and permissions allowed.");
+        });
+    }
+
+    async function detectFaceLoop() {
+        const video = document.getElementById('video');
+        const faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.55);
+
+        async function step() {
+            if (!isScanning) return; 
+
+            // Check if video is actually ready
+            if (video.readyState === 4) {
+                const options = new faceapi.TinyFaceDetectorOptions();
+                const detections = await faceapi.detectAllFaces(video, options).withFaceLandmarks().withFaceDescriptors();
+
+                if (detections.length > 0) {
+                    const bestMatch = faceMatcher.findBestMatch(detections[0].descriptor);
+                    if (bestMatch.label === 'Student') {
+                        log("🎉 FACE MATCHED! Sending Data...");
+                        isScanning = false;
+                        video.pause();
+                        video.srcObject.getTracks().forEach(track => track.stop());
+                        sendToGoogleForm();
+                        return;
+                    }
+                }
+            }
+            requestAnimationFrame(step);
+        }
+        step();
+    }
+
+    function sendToGoogleForm() {
+        const name = document.getElementById("studentName").value;
+        const status = "Present";
+        const formUrl = `https://docs.google.com/forms/d/e/${FORM_ID}/formResponse?&entry.${ENTRY_NAME_ID}=${name}&entry.${ENTRY_STATUS_ID}=${status}&submit=Submit`;
+
+        fetch(formUrl, { mode: 'no-cors' })
+        .then(() => {
+            log("✅ ATTENDANCE SAVED! Check Google Sheet.");
+            alert("Attendance Marked Successfully!");
+        })
+        .catch(err => log("❌ Upload Error: " + err));
+    }
+</script>
+
+</body>
+</html>
