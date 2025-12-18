@@ -1,1 +1,8 @@
-
+// Use the exact filename you uploaded to GitHub
+    const STUDENTS = [
+        { name: "MANAS NARKAR", url: "photos/manas.jpg" },
+        { name: "RAJVEER POWAR", url: "photos/rajveer.jpg" },
+        { name: "TAANAAY MOHARIL", url: "photos/taanaay.jpg" },
+        { name: "TANAV PATIL", url: "photos/tanav.jpg" },
+        // Add the rest here...
+    ];
